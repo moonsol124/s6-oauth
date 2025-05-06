@@ -4,9 +4,7 @@ name: Build and Push Docker Image (OAuth Server)
 on:
   push:
     branches: [ main ]
-    paths: # Optional: Trigger only if OAuth server files change
-      - 'my-oauth-server/**' # Adjust path if needed
-      - '.github/workflows/docker.yaml'
+  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 jobs:
