@@ -33,7 +33,7 @@ jobs:
           context: . # Adjust path if needed
           file: ./Dockerfile # Path to Dockerfile relative to repo root
           push: true
-          tags: |
+          tags: | 
             ${{ secrets.DOCKERHUB_USERNAME }}/oauth-server:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/oauth-server:${{ github.sha }}
           cache-from: type=gha
