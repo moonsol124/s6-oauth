@@ -1,0 +1,70 @@
+# oauth-server-resources.yaml
+
+# --- Namespace (Assumes 'app-services' already exists) ---
+# --- Secret 'oauth-session-secret' should be created beforehand ---
+# --- Secret 'supabase-credentials' also assumed to exist (though not directly used here) ---
+
+# --- ConfigMap for OAuth Server ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oauth-server-config
+  namespace: app-services
+data:
+  # Port the oauth-server container listens on
+  PORT: "3000"
+  # URL for the User Service within the cluster
+  # Uses the Service name and Service port (80)
+  USER_SERVICE_URL: "http://user-service-svc.app-services.svc.cluster.local:80"
+  # Alternative short name if guaranteed to be in same namespace:
+  # USER_SERVICE_URL: "http://user-service-svc:80"
+
+  # Add other non-sensitive env vars if needed
+  # Example: Set cookie security based on environment (adjust as needed)
+  # NODE_ENV: "production" # Set this to 'production' for secure cookies later
+---
+# --- Deployment for the OAuth Server ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth-server-deployment
+  namespace: app-services
+  labels:
+    app: oauth-server # Label for the Deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oauth-server # Selector matches pods with this label
+  template:
+    metadata:
+      labels:
+        app: oauth-server # Label applied to Pods
+    spec:
+      containers:
+      - name: oauth-server-container
+        image: moonsol124/oauth-server:latest # Image from Docker Hub
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000 # Port from PORT in ConfigMap
+        envFrom:
+        - configMapRef:
+            name: oauth-server-config # Load PORT, USER_SERVICE_URL etc.
+        - secretRef:
+            name: oauth-session-secret # Load SESSION_SECRET
+        # Note: Doesn't need supabase-credentials directly based on current code
+---
+# --- Service for OAuth Server (Internal Access) ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth-server-svc # Stable DNS name for internal access
+  namespace: app-services
+spec:
+  selector:
+    app: oauth-server # Selects pods labeled 'app: oauth-server'
+  ports:
+  - protocol: TCP
+    port: 80             # Service listens on port 80 within the cluster
+    targetPort: 3000     # Forwards traffic to container port 3000
+  type: ClusterIP        # Only expose internally within the cluster
