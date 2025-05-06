@@ -30,12 +30,11 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           # IMPORTANT: Set context to the oauth server directory
-          context: ./my-oauth-server # Adjust path if needed
-          file: ./my-oauth-server/Dockerfile # Path to Dockerfile relative to repo root
+          context: . # Adjust path if needed
+          file: ./Dockerfile # Path to Dockerfile relative to repo root
           push: true
           tags: |
-            # Use a distinct image name
-            moonsol124/oauth-server:latest
-            moonsol124/oauth-server:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/oauth-server:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/oauth-server:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
