@@ -11,7 +11,7 @@ const app = express();
 // Use PORT from env, default to 3000 if not set
 const port = process.env.PORT || 3000;
 
-// --- Middleware ---
+// --- Middleware --- 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json()); // Add json parser for potentially different client calls
 app.use(session({
