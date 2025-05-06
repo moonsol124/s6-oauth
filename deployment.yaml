@@ -52,6 +52,8 @@ spec:
             name: oauth-server-config # Load PORT, USER_SERVICE_URL etc.
         - secretRef:
             name: oauth-session-secret # Load SESSION_SECRET
+        - secretRef:
+            name: supabase-credentials # Loads SUPABASE_URL & SUPABASE_KEY
         # Note: Doesn't need supabase-credentials directly based on current code
 ---
 # --- Service for OAuth Server (Internal Access) ---
