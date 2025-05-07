@@ -1,4 +1,3 @@
-// my-oauth-server/index.js
 const express = require('express');
 const bodyParser = require('body-parser');
 const session = require('express-session');
@@ -6,9 +5,26 @@ const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 const axios = require('axios');
 const supabase = require('./supabaseClient'); // Assumes supabaseClient.js is configured
+const jwt = require('jsonwebtoken'); // <<< Add this line
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// --- JWT Secret Key ---
+// !! IMPORTANT: This secret key must be stored securely and kept confidential.
+// !! DO NOT hardcode secrets in production. Use environment variables.
+// !! This same secret key (or the corresponding public key for RS256)
+// !! will be needed by your API Gateway to verify the JWTs.
+const jwtSecret = process.env.JWT_SECRET || 'insecure-dev-secret-fallback-CHANGE-ME'; // MUST CONFIGURE IN ENV!
+if (jwtSecret === 'insecure-dev-secret-fallback-CHANGE-ME' && process.env.NODE_ENV === "production") {
+    console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+    console.error('!! WARNING: Using insecure default JWT_SECRET in PRODUCTION!!');
+    console.error('!! Set a strong, random JWT_SECRET environment variable !!');
+    console.error('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+    // In a real production app, you might want to exit here if the secret is missing/default
+    // process.exit(1);
+}
+
 
 // --- Middleware ---
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -27,12 +43,15 @@ app.use(session({
 // --- Storage ---
 // Client data in Supabase ('oauth_clients')
 // Consent data in Supabase ('user_consents')
-// TODO: Persist codes and tokens
+// TODO: Replace in-memory storage for production
 const authorizationCodes = {}; // Temporary in-memory store
-const accessTokens = {}; // Temporary in-memory store
+// accessTokens is no longer needed for JWT validation
+// const accessTokens = {}; // Temporary in-memory store
+// TODO: Add persistent storage for refresh tokens if you implement them
+// const refreshTokensStorage = {};
 
 // --- Helper Functions ---
-
+// ... (Keep your existing helper functions: parseRedirectUris, parseScopes, buildRedirectUrl, finalizeAuthorization, generateStyledHTML, etc.) ...
 function parseRedirectUris(input) {
     // ... (keep existing parseRedirectUris function)
     let uris = [];
@@ -116,7 +135,53 @@ function finalizeAuthorization(req, res, userId, oauthData) {
     }
 }
 
-// --- UI Generation Functions ---
+// New function to handle logic after user is confirmed logged in (either via session or POST /login)
+async function handleLoggedInUser(req, res) {
+    const userId = req.session.userId;
+    const username = req.session.username; // Get username if available
+    const oauthData = req.session.oauth;
+
+    if (!userId || !oauthData) {
+        console.error("[OAuth Server handleLoggedInUser] Critical session data missing.");
+        // Redirect to login or show error
+        return res.redirect('/authorize'); // Or an error page
+    }
+
+    console.log(`[OAuth Server handleLoggedInUser] Checking consent for User [${userId}], Client [${oauthData.client_id}]`);
+
+    try {
+        // --- Check Database for Existing Consent ---
+        const { data: consentData, error: consentError } = await supabase
+            .from('user_consents')
+            .select('granted_at, scopes') // Select scopes if needed for comparison later
+            .eq('user_id', userId)
+            .eq('client_id', oauthData.client_id)
+            .maybeSingle();
+
+        if (consentError) throw consentError;
+
+        // --- Decision Point: Consent Exists? ---
+        if (consentData) {
+            // TODO: Add scope validation if necessary.
+            // E.g., compare parseScopes(oauthData.scope) with consentData.scopes
+            console.log(`[OAuth Server handleLoggedInUser] Consent already granted at ${consentData.granted_at}. Finalizing authorization.`);
+            // Consent exists, skip the form and issue the code directly
+            finalizeAuthorization(req, res, userId, oauthData);
+        } else {
+            console.log(`[OAuth Server handleLoggedInUser] No existing consent found. Displaying consent form.`);
+            // No consent found, display the consent form to the user
+            // Pass the oauthData state to the consent form for hidden input
+            res.send(generateConsentFormHTML(username, oauthData.client_id, oauthData.scope, oauthData.state));
+        }
+        // --- End Consent Decision ---
+
+    } catch (err) {
+        console.error('[OAuth Server handleLoggedInUser] Error checking/handling consent:', err);
+        res.status(500).send(`Error processing request: ${err.message || 'Internal server error'}`);
+    }
+}
+
+// ... (Keep your existing UI generation functions: generateStyledHTML, generateLoginFormHTML, generateConsentFormHTML) ...
 
 function generateStyledHTML(title, bodyContent) {
     // Basic CSS for centering and styling
@@ -171,7 +236,7 @@ function generateStyledHTML(title, bodyContent) {
             color: white;
             padding: 10px 20px;
             border: none;
-            border-radius: 6px;
+            border-radius: 6phalox;
             font-size: 16px;
             font-weight: bold;
             cursor: pointer;
@@ -352,52 +417,6 @@ app.get('/authorize', async (req, res) => {
     }
 });
 
-// New function to handle logic after user is confirmed logged in (either via session or POST /login)
-async function handleLoggedInUser(req, res) {
-    const userId = req.session.userId;
-    const username = req.session.username; // Get username if available
-    const oauthData = req.session.oauth;
-
-    if (!userId || !oauthData) {
-        console.error("[OAuth Server handleLoggedInUser] Critical session data missing.");
-        // Redirect to login or show error
-        return res.redirect('/authorize'); // Or an error page
-    }
-
-    console.log(`[OAuth Server handleLoggedInUser] Checking consent for User [${userId}], Client [${oauthData.client_id}]`);
-
-    try {
-        // --- Check Database for Existing Consent ---
-        const { data: consentData, error: consentError } = await supabase
-            .from('user_consents')
-            .select('granted_at, scopes') // Select scopes if needed for comparison later
-            .eq('user_id', userId)
-            .eq('client_id', oauthData.client_id)
-            .maybeSingle();
-
-        if (consentError) throw consentError;
-
-        // --- Decision Point: Consent Exists? ---
-        if (consentData) {
-            // TODO: Add scope validation if necessary.
-            // E.g., compare parseScopes(oauthData.scope) with consentData.scopes
-            console.log(`[OAuth Server handleLoggedInUser] Consent already granted at ${consentData.granted_at}. Finalizing authorization.`);
-            // Consent exists, skip the form and issue the code directly
-            finalizeAuthorization(req, res, userId, oauthData);
-        } else {
-            console.log(`[OAuth Server handleLoggedInUser] No existing consent found. Displaying consent form.`);
-            // No consent found, display the consent form to the user
-            res.send(generateConsentFormHTML(username, oauthData.client_id, oauthData.scope, oauthData.state));
-        }
-        // --- End Consent Decision ---
-
-    } catch (err) {
-        console.error('[OAuth Server handleLoggedInUser] Error checking/handling consent:', err);
-        res.status(500).send(`Error processing request: ${err.message || 'Internal server error'}`);
-    }
-}
-
-
 // 3. Handle Login Submission (Calls User Service, then checks consent)
 app.post('/login', async (req, res) => {
     const { username, password } = req.body;
@@ -522,92 +541,171 @@ app.post('/consent', async (req, res) => { // <<< Make async
 });
 
 
-// 5. Token Endpoint (Uses Supabase for Client Auth) - No changes needed here
+// 5. Token Endpoint (Issues JWT and Refresh Token)
 app.post('/token', async (req, res) => {
-    // ... (Keep existing /token code which validates client against DB) ...
     console.log('[OAuth Server /token] Received request.');
     const { grant_type, code, redirect_uri, client_id, client_secret } = req.body;
 
-    // 1. Validate grant_type
+    // --- 1. Validate grant_type ---
     if (grant_type !== 'authorization_code') {
+        console.warn(`[OAuth Server /token] Invalid grant_type: ${grant_type}`);
         return res.status(400).json({ error: 'unsupported_grant_type', error_description: 'Only authorization_code grant type is supported' });
     }
 
-    // 2. Validate Authorization Code (in-memory)
+    // --- 2. Validate Authorization Code ---
     const authCodeData = authorizationCodes[code];
     const isCodeExpired = authCodeData ? Date.now() > authCodeData.expires : true;
+
     if (!authCodeData || isCodeExpired) {
-        if (authCodeData) delete authorizationCodes[code];
+        console.warn(`[OAuth Server /token] Invalid or expired authorization code: [${code?.substring(0,8) || 'N/A'}]`);
+        if (authCodeData) delete authorizationCodes[code]; // Ensure code is deleted after use
         return res.status(400).json({ error: 'invalid_grant', error_description: 'Authorization code is invalid, expired, or already used' });
     }
 
-    // 3. Validate Client ID against Code Data
+    // --- 3. Validate Client ID against Code Data ---
     if (authCodeData.client_id !== client_id) {
+         console.warn(`[OAuth Server /token] Client ID mismatch. Code client: ${authCodeData.client_id}, Request client: ${client_id}`);
         return res.status(400).json({ error: 'invalid_grant', error_description: 'Client ID mismatch for the provided code' });
     }
 
-    // 4. Validate Redirect URI against Code Data
+    // --- 4. Validate Redirect URI against Code Data ---
     if (authCodeData.redirect_uri !== redirect_uri) {
+         console.warn(`[OAuth Server /token] Redirect URI mismatch. Code URI: ${authCodeData.redirect_uri}, Request URI: ${redirect_uri}`);
         return res.status(400).json({ error: 'invalid_grant', error_description: 'Redirect URI mismatch for the provided code' });
     }
 
-    // Code is valid, single-use
+    // Authorization Code is valid and consumed
     delete authorizationCodes[code];
-    console.log(`[OAuth Server /token] Authorization code [${code}] validated and deleted.`);
+    console.log(`[OAuth Server /token] Authorization code [${code.substring(0,8)}...] validated and deleted.`);
 
-    // 5. Validate Client Authentication (Supabase)
+    // --- 5. Validate Client Authentication ---
     try {
         const { data: clientData, error: dbError } = await supabase
             .from('oauth_clients').select('client_id, client_secret')
             .eq('client_id', client_id).maybeSingle();
 
-        if (dbError) throw dbError;
+        if (dbError) {
+             console.error('[OAuth Server /token] Database error during client lookup:', dbError);
+            throw dbError; // Propagate DB error
+        }
 
-        let isClientSecretValid = clientData && clientData.client_secret === client_secret; // HASH in prod
+        // !!! IMPORTANT: In production, HASH the client_secret in the DB and compare hash here !!!
+        let isClientSecretValid = clientData && clientData.client_secret === client_secret;
         if (!isClientSecretValid) {
-            console.error(`[OAuth Server /token] Client authentication failed for [${client_id}]`);
+            console.warn(`[OAuth Server /token] Client authentication failed for [${client_id}] - Invalid secret.`);
             return res.status(401).json({error: 'invalid_client', error_description: 'Client authentication failed'});
         }
         console.log(`[OAuth Server /token] Client [${client_id}] authenticated successfully.`);
 
-        // Issue Access Token (in-memory)
-        const access_token = uuidv4();
-        const tokenExpiryTime = Date.now() + (3600 * 1000);
-        const expiresInSeconds = 3600;
-        accessTokens[access_token] = { userId: authCodeData.userId, clientId: client_id, scope: authCodeData.scope, expires: tokenExpiryTime };
-        console.log(`[OAuth Server /token] Issued access token [${access_token.substring(0,8)}...] for user [${authCodeData.userId}]`);
+        // --- 6. Issue Access Token (JWT) and Refresh Token ---
 
-        res.status(200).json({ access_token: access_token, token_type: 'bearer', expires_in: expiresInSeconds, scope: authCodeData.scope });
+        // JWT Payload (the claims you want to include)
+        const jwtPayload = {
+            sub: authCodeData.userId, // Subject (typically the user ID)
+            client_id: client_id,   // Client who initiated the flow
+            scope: authCodeData.scope, // Granted scopes
+            // Add other claims here as needed, e.g., 'name', 'email', 'roles' (from user service)
+            // exp, iat, etc. are handled by jwt.sign options
+        };
+
+        // Access Token Options (expiry, algorithm)
+        const expiresInSeconds = 3600; // Access token valid for 1 hour (adjust as needed)
+        const jwtOptions = {
+            expiresIn: expiresInSeconds, // Token expires in expiresInSeconds
+            algorithm: 'HS256', // Use HMAC SHA256 for symmetric signing
+            issuer: process.env.OAUTH_SERVER_URL || 'your-oauth-issuer', // Standard 'iss' claim
+            // audience: client_id // Standard 'aud' claim (optional, but good practice)
+        };
+
+        // Generate the JWT Access Token
+        const access_token = jwt.sign(jwtPayload, jwtSecret, jwtOptions);
+
+        console.log(`[OAuth Server /token] Issued JWT access token for user [${authCodeData.userId}]`);
+
+        // --- Issue Refresh Token ---
+        // Refresh tokens are typically opaque strings and long-lived.
+        // They MUST be stored persistently and securely linked to the user/client.
+        const refresh_token = uuidv4(); // Using UUID for simplicity, needs real persistence
+
+        // TODO: Store refresh_token securely in Database or Redis with:
+        // - refresh_token (the UUID)
+        // - user_id (authCodeData.userId)
+        // - client_id (client_id)
+        // - scopes (authCodeData.scope)
+        // - expiry_date (long-lived, e.g., 90 days or rotation based)
+        // Example (conceptual - needs real DB/Redis implementation):
+        // const refreshTokenExpiry = Date.now() + (90 * 24 * 3600 * 1000); // 90 days
+        // refreshTokensStorage[refresh_token] = {
+        //    userId: authCodeData.userId,
+        //    clientId: client_id,
+        //    scope: authCodeData.scope,
+        //    expires: refreshTokenExpiry
+        // };
+
+        console.log(`[OAuth Server /token] Issued refresh token [${refresh_token.substring(0,8)}...] for user [${authCodeData.userId}]`);
+
+
+        // --- 7. Return Tokens in Response ---
+        res.status(200).json({
+            access_token: access_token,
+            token_type: 'bearer',
+            expires_in: expiresInSeconds,
+            refresh_token: refresh_token, // Include refresh token in response
+            scope: authCodeData.scope
+        });
 
     } catch(err) {
-        console.error('[OAuth Server /token] Error during client validation/token issuance:', err);
+        console.error('[OAuth Server /token] Unhandled error during client validation/token issuance:', err);
+        // Return a generic server error
         res.status(500).json({ error: 'server_error', error_description: 'Internal error during token processing' });
     }
 });
 
-// 6. Protected Resource Endpoint (Example - Uses In-Memory Tokens) - No changes needed here
+// 6. Protected Resource Endpoint (Example - This endpoint is just for demonstration
+//    and should ideally be on a separate backend service, *not* the OAuth server.
+//    It would receive the JWT from the API Gateway and validate it there.)
+//    To make this example work, you would need to implement JWT verification here.
+//    However, the standard pattern is that *backend resources* (like your User Service)
+//    don't directly receive the JWT from the frontend; the API Gateway handles validation
+//    and forwards user info.
+/*
 app.get('/resource', (req, res) => {
-    // ... (Keep existing /resource code) ...
-     const authHeader = req.headers.authorization;
-    const accessToken = authHeader?.split(' ')[1];
-    if (!accessToken) return res.status(401).json({ error: 'missing_token' });
-    const tokenData = accessTokens[accessToken];
-    const isTokenExpired = tokenData ? Date.now() > tokenData.expires : true;
-    if (!tokenData || isTokenExpired) {
-         if (tokenData) delete accessTokens[accessToken];
+     console.log('[OAuth Server /resource] Received request.');
+    // This logic is typically done by your API Gateway or the target service.
+    // It needs to verify the JWT signature and claims.
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1]; // Extract the token
+
+    if (!token) {
+        return res.status(401).json({ error: 'missing_token' });
+    }
+
+    try {
+         const decoded = jwt.verify(token, jwtSecret); // Verify the signature using the same secret
+
+         // Now you can use the decoded claims, e.g., userId from 'sub'
+         const userId = decoded.sub;
+         const clientId = decoded.client_id; // If you included it
+         const scope = decoded.scope;     // If you included it
+
+         console.log(`[OAuth Server /resource] Access granted for token, User ID: ${userId}`);
+
+         // Return the protected resource data
+        res.json({ message: `Hello, User ${userId}! This is a protected resource.`, data: { your_user_id: userId, accessed_by_client: clientId, scope: scope } });
+
+    } catch (err) {
+        console.error('JWT Validation Error on /resource:', err.message);
         return res.status(401).json({ error: 'invalid_or_expired_token' });
     }
-    const userId = tokenData.userId;
-    console.log(`[OAuth Server /resource] Access granted for token [${accessToken.substring(0,8)}...], User ID: ${userId}`);
-    res.json({ message: `Hello, User ${userId}! This is a protected resource.`, data: { your_user_id: userId, accessed_by_client: tokenData.clientId, scope: tokenData.scope } });
 });
-
+*/
 
 // --- Start Server ---
 app.listen(port, () => {
     console.log(`OAuth Server listening on port ${port}`);
     console.log(`  -> USER_SERVICE_URL: ${process.env.USER_SERVICE_URL || 'Not Set!'}`);
     console.log(`  -> Session Secret: ${process.env.SESSION_SECRET ? 'Loaded from ENV' : 'Using Fallback!'}`);
+    console.log(`  -> JWT Secret: ${process.env.JWT_SECRET ? 'Loaded from ENV' : 'Using Fallback!'}`);
     console.log(`  -> Supabase URL: ${process.env.SUPABASE_URL ? 'Loaded' : 'Not Set!'}`);
     console.log(`  -> Supabase Key: ${process.env.SUPABASE_KEY ? 'Loaded' : 'Not Set!'}`);
 });
