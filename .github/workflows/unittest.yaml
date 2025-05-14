@@ -1,0 +1,64 @@
+# .github/workflows/ci-tests.yml
+
+name: Node.js CI Tests
+
+# Trigger the workflow on pushes and pull requests
+on:
+  push:
+    branches: [ main ] # Adjust branch name if yours is different (e.g., master)
+  pull_request:
+    branches: [ main ] # Adjust branch name if yours is different
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This job builds and tests the Node.js application
+  build-and-test:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest # You can use other OS if needed (windows-latest, macos-latest)
+
+    # Environment variables needed for the application/tests
+    # Sensitive values should be stored as GitHub Secrets
+    env:
+      # --- Sensitive Secrets (MUST be configured in GitHub Secrets) ---
+      # These values are accessed from your GitHub repository's settings -> Secrets -> Actions
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+
+      # --- Non-sensitive (or mock-relevant) variables ---
+      # For unit tests with mocks, these don't need to be real, but should match
+      # any checks your app/mocks might do (e.g., checking if they're set).
+      # Update these keys/values to match what your app.js and supabaseClient.js actually use.
+      # Based on your provided supabaseClient.js:
+      SUPABASE_USER_URL: http://mock-supabase-user-url # Placeholder for tests
+      SUPABASE_USER_KEY: mock-supabase-user-key       # Placeholder for tests
+      # Based on your provided app.js:
+      USER_SERVICE_URL: http://mock-user-service      # Placeholder for tests
+      # Note: app.js also uses SUPABASE_URL and SUPABASE_KEY for client registration.
+      # Make sure your app.js *only* uses SUPABASE_USER_URL/KEY for the exported client instance
+      # or mock the registration endpoint's use separately if needed.
+      # For this unit test pipeline, we assume mocks handle DB interaction.
+      SUPABASE_URL: http://mock-supabase-url # Placeholder if app.js still references this
+      SUPABASE_KEY: mock-supabase-key      # Placeholder if app.js still references this
+
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      # Set up Node.js environment and cache npm dependencies
+      # This step looks at your .nvmrc file or package.json's engines.node
+      # If neither is present, it defaults to the latest LTS version.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*' # Use the latest LTS version
+          cache: 'npm' # Cache npm dependencies for faster builds
+
+      # Installs dependencies defined in package.json
+      - name: Install dependencies
+        run: npm ci # 'ci' is recommended for CI environments
+
+      # Runs the test script defined in your package.json (which is 'jest')
+      - name: Run tests
+        run: npm test

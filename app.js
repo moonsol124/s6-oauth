@@ -1,14 +1,16 @@
+// --- app.js ---
 const express = require('express');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const { v4: uuidv4 } = require('uuid');
-require('dotenv').config();
+require('dotenv').config(); // Keep dotenv here for flexibility, though test setup also loads it
 const axios = require('axios');
 const supabase = require('./supabaseClient'); // Assumes supabaseClient.js is configured
-const jwt = require('jsonwebtoken'); // <<< Add this line
+const jwt = require('jsonwebtoken');
 
 const app = express();
-const port = process.env.PORT || 3000;
+// const port = process.env.PORT || 3000; // Port definition is moved to the startup file
+
 
 // --- JWT Secret Key ---
 // !! IMPORTANT: This secret key must be stored securely and kept confidential.
@@ -49,6 +51,9 @@ const authorizationCodes = {}; // Temporary in-memory store
 // const accessTokens = {}; // Temporary in-memory store
 // TODO: Add persistent storage for refresh tokens if you implement them
 // const refreshTokensStorage = {};
+
+// Make authorizationCodes accessible for testing
+app.authorizationCodes = authorizationCodes;
 
 // --- Helper Functions ---
 // ... (Keep your existing helper functions: parseRedirectUris, parseScopes, buildRedirectUrl, finalizeAuthorization, generateStyledHTML, etc.) ...
@@ -700,7 +705,9 @@ app.get('/resource', (req, res) => {
 });
 */
 
-// --- Start Server ---
+// --- Export the app instance ---
+// REMOVE the app.listen(...) block
+/*
 app.listen(port, () => {
     console.log(`OAuth Server listening on port ${port}`);
     console.log(`  -> USER_SERVICE_URL: ${process.env.USER_SERVICE_URL || 'Not Set!'}`);
@@ -709,3 +716,12 @@ app.listen(port, () => {
     console.log(`  -> Supabase URL: ${process.env.SUPABASE_URL ? 'Loaded' : 'Not Set!'}`);
     console.log(`  -> Supabase Key: ${process.env.SUPABASE_KEY ? 'Loaded' : 'Not Set!'}`);
 });
+*/
+
+module.exports = app; // Export the configured app instance
+
+// ADD NAMED EXPORTS FOR HELPER FUNCTIONS:
+module.exports.parseRedirectUris = parseRedirectUris;
+module.exports.parseScopes = parseScopes;
+module.exports.buildRedirectUrl = buildRedirectUrl;
+// You might also want to export others if you test them individually
