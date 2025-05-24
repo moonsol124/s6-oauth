@@ -374,6 +374,7 @@ app.get('/authorize', async (req, res) => {
     // --- End Basic Validation ---
 
     try {
+        console.log("running???")
         // --- Client & Redirect URI Validation ---
         const { data: clientData, error: dbError } = await supabase
             .from('oauth_clients')
@@ -381,12 +382,21 @@ app.get('/authorize', async (req, res) => {
             .eq('client_id', client_id)
             .maybeSingle();
 
-        if (dbError) throw dbError; // Let main error handler catch db issues
+        console.log("running??? 1")
 
-        let isValidClient = false;
+        if (dbError) {
+            console.log(dbError)
+            throw dbError; // Let main error handler catch db issues
+        
+        }let isValidClient = false;
+
+        console.log("running??? 3")
+
         if (clientData && Array.isArray(clientData.redirect_uris)) {
             isValidClient = clientData.redirect_uris.includes(redirect_uri);
         }
+        console.log("running??? 2")
+
         if (!isValidClient) {
             console.warn(`[OAuth Server /authorize] Invalid client or redirect URI. Client Found: ${!!clientData}, URI Valid: ${isValidClient}`);
             return res.status(400).send('Invalid client_id or redirect_uri.');
@@ -700,12 +710,37 @@ app.get('/resource', (req, res) => {
 });
 */
 
+// Get All Profiles (GET /profiles)
+app.get('/profiles', async (req, res) => {
+    console.log(`[User Service GET /profiles] Received request`);
+
+    // TODO: Add Authorization Check here! Only admins should view all users.
+    // Example: Check the X-User-ID header and query that user's role.
+
+    try {
+        const { data, error } = await supabase
+            .from('users')
+            // --- SELECT 'role' column ---
+            .select('id, username, email, created_at, role'); // <<< Ensure 'role' is selected
+
+        if (error) {
+            console.error('[User Service GET /profiles] Supabase fetch error:', error);
+            return res.status(500).json({ error: 'Database error fetching profiles' });
+        }
+        console.log(`[User Service GET /profiles] Found ${data?.length || 0} profiles.`);
+        res.status(200).json(data || []);
+    } catch (error) {
+        console.error('[User Service GET /profiles] Unhandled error:', error);
+        res.status(500).json({ error: 'Internal server error fetching profiles' });
+    }
+});
+
 // --- Start Server ---
 app.listen(port, () => {
     console.log(`OAuth Server listening on port ${port}`);
     console.log(`  -> USER_SERVICE_URL: ${process.env.USER_SERVICE_URL || 'Not Set!'}`);
     console.log(`  -> Session Secret: ${process.env.SESSION_SECRET ? 'Loaded from ENV' : 'Using Fallback!'}`);
     console.log(`  -> JWT Secret: ${process.env.JWT_SECRET ? 'Loaded from ENV' : 'Using Fallback!'}`);
-    console.log(`  -> Supabase URL: ${process.env.SUPABASE_URL ? 'Loaded' : 'Not Set!'}`);
-    console.log(`  -> Supabase Key: ${process.env.SUPABASE_KEY ? 'Loaded' : 'Not Set!'}`);
+    console.log(`  -> Supabase URL: ${process.env.SUPABASE_USER_URL ? 'Loaded' : 'Not Set!'}`);
+    console.log(`  -> Supabase Key: ${process.env.SUPABASE_USER_KEY ? 'Loaded' : 'Not Set!'}`);
 });
